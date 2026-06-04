@@ -27,12 +27,10 @@ const ServiceCard = ({
         primaryButtonIcon={ArrowRight}
         primaryButtonText={" "}
         secondaryButtonIcon={isPartOfDigitalAssistants ? undefined : Deploy}
-        // secondaryButtonText={isPartOfDigitalAssistants ? undefined : "Deploy"}
         secondaryButtonText={
           isPartOfDigitalAssistants ? "Part of digital assistants" : "Deploy"
         }
         onPrimaryButtonClick={() =>
-          // isPartOfDigitalAssistants ? onDeploy?.(id) : onLearnMore?.(id)
           onLearnMore?.(id)
         }
         onClick={() => onLearnMore?.(id)}

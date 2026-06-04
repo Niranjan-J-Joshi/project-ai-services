@@ -4,8 +4,7 @@ import { PageHeader } from "@carbon/ibm-products";
 import { ServiceCard, ServiceDetailPanel } from "@/components";
 import type { ServiceDetailData } from "@/components";
 import styles from "./Services.module.scss";
-// import mockServices from "@/";
-import DeployedServicesTable from "@/components/DeployedServicesTable";
+import {DeployedServicesTable} from "@/components";
 
 const Services = () => {
   const [selectedService, setSelectedService] =
@@ -53,7 +52,6 @@ const Services = () => {
         </TabList>
         <TabPanels>
           <TabPanel>
-            {/* <div className={styles.tabContent}>Deployments content</div> */}
             <DeployedServicesTable />
           </TabPanel>
           <TabPanel>

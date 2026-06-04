@@ -316,7 +316,6 @@ const ServiceDetailPanel = ({
               >
                 {service.sla.small && (
                   <div className={styles.column}>
-                    {/* <div className={styles.columnLabel}>Starter assumptions</div> */}
                     {service.sla.small.assumptions &&
                       service.sla.small.assumptions.length > 0 && (
                         <>
@@ -347,7 +346,6 @@ const ServiceDetailPanel = ({
                 )}
                 {service.sla.medium && (
                   <div className={styles.column}>
-                    {/* <div className={styles.columnLabel}>Medium:</div> */}
                     {service.sla.medium.assumptions &&
                       service.sla.medium.assumptions.length > 0 && (
                         <>

@@ -448,9 +448,6 @@ const DeployedServicesTable = () => {
                       <Table {...getTableProps()}>
                         <TableHead>
                           <TableRow>
-                            {/* <TableHeader
-                                    {...getExpandHeaderProps()}
-                                  /> */}
                             {headers.map((header) => {
                               const { key, ...rest } = getHeaderProps({
                                 header,
