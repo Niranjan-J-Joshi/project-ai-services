@@ -9,4 +9,4 @@ export type {
 } from "./ServiceDetailPanel";
 export { default as SolutionCard } from "./SolutionCard";
 export type { SolutionCardProps } from "./SolutionCard";
-export {default as DeployedServicesTable} from "./DeployedServicesTable";
+export { default as DeployedServicesTable } from "./DeployedServicesTable";

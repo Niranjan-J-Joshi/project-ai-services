@@ -4,7 +4,7 @@ import { PageHeader } from "@carbon/ibm-products";
 import { ServiceCard, ServiceDetailPanel } from "@/components";
 import type { ServiceDetailData } from "@/components";
 import styles from "./Services.module.scss";
-import {DeployedServicesTable} from "@/components";
+import { DeployedServicesTable } from "@/components";
 
 const Services = () => {
   const [selectedService, setSelectedService] =

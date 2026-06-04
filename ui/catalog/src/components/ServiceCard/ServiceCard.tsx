@@ -30,9 +30,7 @@ const ServiceCard = ({
         secondaryButtonText={
           isPartOfDigitalAssistants ? "Part of digital assistants" : "Deploy"
         }
-        onPrimaryButtonClick={() =>
-          onLearnMore?.(id)
-        }
+        onPrimaryButtonClick={() => onLearnMore?.(id)}
         onClick={() => onLearnMore?.(id)}
         onSecondaryButtonClick={() => onDeploy?.(id)}
         clickZone="two"

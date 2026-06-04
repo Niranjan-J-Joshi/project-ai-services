@@ -291,7 +291,7 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
           status: true,
           uptime: true,
           messages: true,
-          service:true,
+          service: true,
         },
       };
     case ACTION_TYPES.SHOW_EXPORT_TOAST:
