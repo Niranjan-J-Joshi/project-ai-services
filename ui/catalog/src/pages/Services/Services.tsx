@@ -41,7 +41,6 @@ const Services = () => {
   const [state, dispatch] = useReducer(servicesReducer, INITIAL_STATE);
 
   const handleCardClick = (id: string) => {
-    console.log("clicked," + "   " + id);
     const service = state.mockServices.find((s) => s.id === id);
     console.log(service);
     if (service) {
@@ -91,7 +90,6 @@ const Services = () => {
 
   const handleTabChange = (evt: { selectedIndex: number }) => {
     // Catalog tab is at index 1
-    console.log("Clicked");
     if (evt.selectedIndex === 1 && !state.hasFetchedServices) {
       fetchServices();
     }

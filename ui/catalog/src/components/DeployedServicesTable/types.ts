@@ -62,7 +62,8 @@ export const ACTION_TYPES = {
   DEPLOYED_SERVICES_DELETE_ROW: "DEPLOYED_SERVICES_DELETE_ROW",
   DEPLOYED_SERVICES_SHOW_ERROR: "DEPLOYED_SERVICES_SHOW_ERROR",
   DEPLOYED_SERVICES_HIDE_ERROR: "DEPLOYED_SERVICES_HIDE_ERROR",
-  DEPLOYED_SERVICES_SET_IS_DELETING: "DEPLOYED_SERVICES_SET_IS_DELETING",
+  DEPLOYED_SERVICES_START_DELETING: "DEPLOYED_SERVICES_START_DELETING",
+  DEPLOYED_SERVICES_STOP_DELETING: "DEPLOYED_SERVICES_STOP_DELETING",
   DEPLOYED_SERVICES_OPEN_EXPORT_DIALOG: "DEPLOYED_SERVICES_OPEN_EXPORT_DIALOG",
   DEPLOYED_SERVICES_CLOSE_EXPORT_DIALOG:
     "DEPLOYED_SERVICES_CLOSE_EXPORT_DIALOG",
@@ -109,10 +110,8 @@ export type AppAction =
       payload: { message: string; rowName?: string };
     }
   | { type: typeof ACTION_TYPES.DEPLOYED_SERVICES_HIDE_ERROR }
-  | {
-      type: typeof ACTION_TYPES.DEPLOYED_SERVICES_SET_IS_DELETING;
-      payload: boolean;
-    }
+  | { type: typeof ACTION_TYPES.DEPLOYED_SERVICES_START_DELETING }
+  | { type: typeof ACTION_TYPES.DEPLOYED_SERVICES_STOP_DELETING }
   | { type: typeof ACTION_TYPES.DEPLOYED_SERVICES_OPEN_EXPORT_DIALOG }
   | { type: typeof ACTION_TYPES.DEPLOYED_SERVICES_CLOSE_EXPORT_DIALOG }
   | {
@@ -173,6 +172,14 @@ export const HEADERS: DataTableHeader[] = [
   { header: "Messages", key: "messages" },
   { header: "", key: "actions" },
 ];
+
+// Service filter constants
+export const SERVICE_TYPES = {
+  DIGITIZE_DOCUMENTS: "Digitize Documents",
+  FIND_SIMILAR_ITEMS: "Find Similar Items",
+  QUESTION_AND_ANSWER: "Question and Answer",
+  SUMMARIZE: "Summarize",
+} as const;
 
 // Status Column sort order
 export const STATUS_SORT_ORDER: Record<string, number> = {
@@ -267,8 +274,10 @@ export const appReducer = (state: AppState, action: AppAction): AppState => {
         hasError: false,
         deleteErrorRowName: "",
       };
-    case ACTION_TYPES.DEPLOYED_SERVICES_SET_IS_DELETING:
-      return { ...state, isDeleting: action.payload };
+    case ACTION_TYPES.DEPLOYED_SERVICES_START_DELETING:
+      return { ...state, isDeleting: true };
+    case ACTION_TYPES.DEPLOYED_SERVICES_STOP_DELETING:
+      return { ...state, isDeleting: false };
     case ACTION_TYPES.DEPLOYED_SERVICES_SET_SELECTED_ROW_ID:
       return { ...state, selectedRowId: action.payload };
     case ACTION_TYPES.DEPLOYED_SERVICES_OPEN_EXPORT_DIALOG:

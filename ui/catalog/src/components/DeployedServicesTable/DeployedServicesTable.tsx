@@ -35,7 +35,13 @@ import {
 } from "@carbon/icons-react";
 import styles from "./DeployedServices.module.scss";
 import type { DeployedServicesRow, ApplicationApiResponse } from "./types";
-import { ACTION_TYPES, HEADERS, INITIAL_STATE, appReducer } from "./types";
+import {
+  ACTION_TYPES,
+  HEADERS,
+  INITIAL_STATE,
+  appReducer,
+  SERVICE_TYPES,
+} from "./types";
 import { CELL_RENDERERS } from "./CellRenderers";
 import { downloadCSVWithChildren } from "@/utils/csv";
 import type { Dispatch } from "react";
@@ -83,8 +89,9 @@ const DeployedServicesTable = () => {
     });
 
     try {
-      const response = await api.get("/applications?deployment_type=services");
-      console.log("Deployed Services Data:", response.data);
+      const response = await api.get(
+        APPLICATION_ENDPOINTS.GET_DEPLOYED_SERVICES,
+      );
 
       // Transform API response to table row format
       if (response.data?.data) {
@@ -183,22 +190,9 @@ const DeployedServicesTable = () => {
 
     const rowId = state.selectedRowId;
 
-    // Close modal immediately for better UX
-    dispatch({ type: ACTION_TYPES.DEPLOYED_SERVICES_CLOSE_DELETE_DIALOG });
-
-    // Update row status to "Deleting..." so user sees progress in table
+    // Set deleting flag to show loading state in modal
     dispatch({
-      type: ACTION_TYPES.DEPLOYED_SERVICES_UPDATE_ROW_STATUS,
-      payload: {
-        id: rowId,
-        status: "Deleting...",
-        message: "Deletion in progress",
-      },
-    });
-
-    dispatch({
-      type: ACTION_TYPES.DEPLOYED_SERVICES_SET_IS_DELETING,
-      payload: true,
+      type: ACTION_TYPES.DEPLOYED_SERVICES_START_DELETING,
     });
 
     try {
@@ -206,45 +200,48 @@ const DeployedServicesTable = () => {
         APPLICATION_ENDPOINTS.DELETE_APPLICATION(rowId),
       );
 
-      if (response.status !== 202) {
-        throw new Error(`Delete failed (${response.status})`);
-      }
+      // API returns 202 Accepted for successful async deletion
+      if (response.status === 202) {
+        // Get the response data from the API
+        const responseData = response.data;
 
-      // Check if response contains status information
-      const responseData = response.data;
+        // Map API status to UI status format
+        const mapApiStatusToUiStatus = (
+          apiStatus: string | undefined,
+        ): DeployedServicesRow["status"] => {
+          if (!apiStatus) return "Deleting...";
 
-      // If deletion is complete or no status info, remove row
-      if (!responseData?.status || responseData.status === "deleted") {
-        dispatch({
-          type: ACTION_TYPES.DEPLOYED_SERVICES_DELETE_ROW,
-          payload: rowId,
-        });
-      } else if (
-        responseData.status === "deleting" ||
-        responseData.status === "pending"
-      ) {
-        // Deletion is async, keep showing "Deleting..." status
-        // In a real scenario, you might want to poll for status updates here
+          // Map API status values to UI status values
+          switch (apiStatus.toLowerCase()) {
+            case "deleting":
+            case "pending":
+              return "Deleting...";
+            case "deleted":
+              // If deleted, we'll remove the row after refresh
+              return "Deleting...";
+            case "error":
+            case "failed":
+              return "Error";
+            default:
+              return "Deleting...";
+          }
+        };
+
+        // Update the table row with the API response data
+        const uiStatus = mapApiStatusToUiStatus(responseData?.status);
         dispatch({
           type: ACTION_TYPES.DEPLOYED_SERVICES_UPDATE_ROW_STATUS,
           payload: {
             id: rowId,
-            status: "Deleting...",
-            message: responseData.message || "Deletion in progress",
+            status: uiStatus,
+            message: responseData?.message || "Deletion in progress",
           },
         });
+      } else {
+        throw new Error(`Delete failed with status ${response.status}`);
       }
     } catch (err) {
-      // On error, update status to "Error" and show toast
-      dispatch({
-        type: ACTION_TYPES.DEPLOYED_SERVICES_UPDATE_ROW_STATUS,
-        payload: {
-          id: rowId,
-          status: "Error",
-          message: "Deletion failed",
-        },
-      });
-
+      // On error, show error message
       const msg =
         err instanceof Error
           ? err.message
@@ -255,11 +252,24 @@ const DeployedServicesTable = () => {
         type: ACTION_TYPES.DEPLOYED_SERVICES_SHOW_ERROR,
         payload: { message: msg, rowName: name },
       });
-    } finally {
+
+      // Update row status to "Error"
       dispatch({
-        type: ACTION_TYPES.DEPLOYED_SERVICES_SET_IS_DELETING,
-        payload: false,
+        type: ACTION_TYPES.DEPLOYED_SERVICES_UPDATE_ROW_STATUS,
+        payload: {
+          id: rowId,
+          status: "Error",
+          message: "Deletion failed",
+        },
       });
+    } finally {
+      // Reset deleting flag
+      dispatch({
+        type: ACTION_TYPES.DEPLOYED_SERVICES_STOP_DELETING,
+      });
+
+      // Close modal after successful deletion or error
+      dispatch({ type: ACTION_TYPES.DEPLOYED_SERVICES_CLOSE_DELETE_DIALOG });
     }
   };
 
@@ -440,54 +450,55 @@ const DeployedServicesTable = () => {
                               </h6>
                               <CheckboxGroup legendText="">
                                 <Checkbox
-                                  labelText="Digitize Documents"
+                                  labelText={SERVICE_TYPES.DIGITIZE_DOCUMENTS}
                                   id="filter-digitize"
                                   checked={state.selectedServices.includes(
-                                    "Digitize Documents",
+                                    SERVICE_TYPES.DIGITIZE_DOCUMENTS,
                                   )}
                                   onChange={() =>
                                     dispatch({
                                       type: ACTION_TYPES.DEPLOYED_SERVICES_TOGGLE_SERVICE_FILTER,
-                                      payload: "Digitize Documents",
+                                      payload: SERVICE_TYPES.DIGITIZE_DOCUMENTS,
                                     })
                                   }
                                 />
                                 <Checkbox
-                                  labelText="Find Similar Items"
+                                  labelText={SERVICE_TYPES.FIND_SIMILAR_ITEMS}
                                   id="filter-similar"
                                   checked={state.selectedServices.includes(
-                                    "Find Similar Items",
+                                    SERVICE_TYPES.FIND_SIMILAR_ITEMS,
                                   )}
                                   onChange={() =>
                                     dispatch({
                                       type: ACTION_TYPES.DEPLOYED_SERVICES_TOGGLE_SERVICE_FILTER,
-                                      payload: "Find Similar Items",
+                                      payload: SERVICE_TYPES.FIND_SIMILAR_ITEMS,
                                     })
                                   }
                                 />
                                 <Checkbox
-                                  labelText="Question and Answer"
+                                  labelText={SERVICE_TYPES.QUESTION_AND_ANSWER}
                                   id="filter-qa"
                                   checked={state.selectedServices.includes(
-                                    "Question and Answer",
+                                    SERVICE_TYPES.QUESTION_AND_ANSWER,
                                   )}
                                   onChange={() =>
                                     dispatch({
                                       type: ACTION_TYPES.DEPLOYED_SERVICES_TOGGLE_SERVICE_FILTER,
-                                      payload: "Question and Answer",
+                                      payload:
+                                        SERVICE_TYPES.QUESTION_AND_ANSWER,
                                     })
                                   }
                                 />
                                 <Checkbox
-                                  labelText="Summarize"
+                                  labelText={SERVICE_TYPES.SUMMARIZE}
                                   id="filter-summary"
                                   checked={state.selectedServices.includes(
-                                    "Summarize",
+                                    SERVICE_TYPES.SUMMARIZE,
                                   )}
                                   onChange={() =>
                                     dispatch({
                                       type: ACTION_TYPES.DEPLOYED_SERVICES_TOGGLE_SERVICE_FILTER,
-                                      payload: "Summarize",
+                                      payload: SERVICE_TYPES.SUMMARIZE,
                                     })
                                   }
                                 />
@@ -571,14 +582,7 @@ const DeployedServicesTable = () => {
                               </div>
                             </li>
                           </OverflowMenu>
-                          <Button
-                            kind="primary"
-                            size="lg"
-                            renderIcon={Deploy}
-                            onClick={() => {
-                              console.log("Deploy clicked");
-                            }}
-                          >
+                          <Button kind="primary" size="lg" renderIcon={Deploy}>
                             Deploy
                           </Button>
                         </TableToolbarContent>
@@ -694,14 +698,17 @@ const DeployedServicesTable = () => {
               size="sm"
               modalLabel="Delete service deployment"
               modalHeading="Confirm delete"
-              primaryButtonText="Delete"
+              primaryButtonText={state.isDeleting ? "Deleting..." : "Delete"}
               secondaryButtonText="Cancel"
               danger
-              primaryButtonDisabled={!state.isConfirmed}
+              primaryButtonDisabled={!state.isConfirmed || state.isDeleting}
               onRequestClose={() => {
-                dispatch({
-                  type: ACTION_TYPES.DEPLOYED_SERVICES_CLOSE_DELETE_DIALOG,
-                });
+                // Prevent closing modal while deletion is in progress
+                if (!state.isDeleting) {
+                  dispatch({
+                    type: ACTION_TYPES.DEPLOYED_SERVICES_CLOSE_DELETE_DIALOG,
+                  });
+                }
               }}
               onRequestSubmit={handleDelete}
             >
