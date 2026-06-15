@@ -8,18 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/podman/v5/pkg/bindings/containers"
-	"github.com/containers/podman/v5/pkg/bindings/pods"
-	"github.com/containers/podman/v5/pkg/bindings/secrets"
-	"github.com/google/uuid"
-
+	"github.com/project-ai-services/ai-services/internal/pkg/application/podman/common"
 	"github.com/project-ai-services/ai-services/internal/pkg/logger"
 	"github.com/project-ai-services/ai-services/internal/pkg/runtime/podman"
 	"github.com/project-ai-services/ai-services/internal/pkg/vars"
 )
 
 const (
-	secretKeyValueParts   = 2
 	defaultOpenSearchHost = "localhost:9200"
 	containerBackupPath   = "/tmp/opensearch_backup"
 	maxIndexNameLength    = 255
@@ -52,64 +47,7 @@ func RestoreOpenSearch(ctx context.Context, templateID, backupFile string) error
 
 // findContainerAndPod finds the OpenSearch container and its pod ID.
 func findContainerAndPod(ctx context.Context, templateID string) (string, string, error) {
-	containerName, err := findOpenSearchContainer(ctx, templateID)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to find OpenSearch container: %w", err)
-	}
-
-	podID, err := getPodID(ctx, containerName)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get pod ID: %w", err)
-	}
-
-	return containerName, podID, nil
-}
-
-// findOpenSearchContainer finds the OpenSearch container for the given template ID using Podman SDK.
-func findOpenSearchContainer(ctx context.Context, templateID string) (string, error) {
-	// Parse templateID as UUID to ensure it's valid
-	templateUUID, err := uuid.Parse(templateID)
-	if err != nil {
-		return "", fmt.Errorf("invalid template ID format: %w", err)
-	}
-
-	// List containers with filters
-	filters := map[string][]string{
-		"label": {fmt.Sprintf("ai-services.io/template=%s", templateUUID.String())},
-		"name":  {"opensearch"},
-	}
-
-	listOpts := &containers.ListOptions{}
-	listOpts.WithFilters(filters)
-
-	containerList, err := containers.List(ctx, listOpts)
-	if err != nil {
-		return "", fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	if len(containerList) == 0 {
-		return "", fmt.Errorf("OpenSearch container not found for template ID: %s", templateUUID.String())
-	}
-
-	// Return the first matching container name
-	return containerList[0].Names[0], nil
-}
-
-// getPodID gets the pod ID for a container using Podman SDK.
-// Note: Using direct SDK call because Pod field is not exposed in runtime types.Container.
-func getPodID(ctx context.Context, containerName string) (string, error) {
-	// Inspect the container to get pod information
-	containerData, err := containers.Inspect(ctx, containerName, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to inspect container: %w", err)
-	}
-
-	podID := containerData.Pod
-	if podID == "" {
-		return "", fmt.Errorf("container is not part of a pod. Sidecar approach requires pod deployment")
-	}
-
-	return podID, nil
+	return common.FindContainerAndPod(ctx, templateID)
 }
 
 // manageSidecarWithGo manages the lifecycle of a podman sidecar container using runtime package.
@@ -137,7 +75,7 @@ func manageSidecarWithGo(ctx context.Context, podID, backupDir string) error {
 
 // prepareSidecarAndRestore prepares the sidecar container and performs the restore.
 func prepareSidecarAndRestore(ctx context.Context, containerID, backupDir string) error {
-	osPassword, err := getOpenSearchPasswordFromSecret(ctx, containerID)
+	osPassword, err := common.GetOpenSearchPasswordFromSecret(ctx, containerID)
 	if err != nil {
 		return fmt.Errorf("failed to get OpenSearch password: %w", err)
 	}
@@ -492,23 +430,54 @@ fi
 	return nil
 }
 
-// bulkIndexDocuments performs bulk indexing of documents.
+// bulkIndexDocuments performs bulk indexing of documents in batches to avoid 413 errors.
 func bulkIndexDocuments(ctx context.Context, containerID, osHost, osPassword, backupDir, indexName string) error {
 	// Use environment variable for password and validate HTTP response
+	// Process documents in batches of 1000 to balance speed and request size limits
 	bulkScript := fmt.Sprintf(`
-RESPONSE=$(cat %s/%s_data.json | jq -c '.[] | {"index": {"_index": "%s", "_id": ._id}}, ._source' | \
-curl -k -u "admin:${OS_PASSWORD}" "https://%s/_bulk" -X POST -H "Content-Type: application/x-ndjson" --data-binary @- -s -w "\n%%{http_code}")
-HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
-BODY=$(echo "$RESPONSE" | head -n -1)
-if [ "$HTTP_CODE" != "200" ]; then
-	echo "Failed to bulk index documents. HTTP code: $HTTP_CODE, Response: $BODY" >&2
-	exit 1
-fi
-# Validate response for errors
-if echo "$BODY" | jq -e '.errors == true' > /dev/null 2>&1; then
-	echo "Bulk indexing had errors. Response: $BODY" >&2
-	exit 1
-fi
+# Batch size for bulk indexing (increased for faster processing)
+BATCH_SIZE=1000
+DATA_FILE="%s/%s_data.json"
+INDEX_NAME="%s"
+OS_HOST="%s"
+
+# Count total documents
+TOTAL_DOCS=$(jq 'length' "$DATA_FILE")
+echo "Total documents to index: $TOTAL_DOCS"
+
+# Calculate number of batches
+BATCHES=$(( ($TOTAL_DOCS + $BATCH_SIZE - 1) / $BATCH_SIZE ))
+echo "Processing in $BATCHES batch(es) of up to $BATCH_SIZE documents"
+
+# Process each batch
+BATCH_NUM=0
+while [ $BATCH_NUM -lt $BATCHES ]; do
+	START_IDX=$(( $BATCH_NUM * $BATCH_SIZE ))
+	echo "Processing batch $(( $BATCH_NUM + 1 ))/$BATCHES (starting at document $START_IDX)..."
+	
+	# Extract batch and format for bulk API
+	BATCH_DATA=$(jq -c ".[$START_IDX:$START_IDX+$BATCH_SIZE] | .[] | {\"index\": {\"_index\": \"$INDEX_NAME\", \"_id\": ._id}}, ._source" "$DATA_FILE")
+	
+	# Send batch to OpenSearch
+	RESPONSE=$(echo "$BATCH_DATA" | curl -k -u "admin:${OS_PASSWORD}" "https://$OS_HOST/_bulk" -X POST -H "Content-Type: application/x-ndjson" --data-binary @- -s -w "\n%%{http_code}")
+	HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+	BODY=$(echo "$RESPONSE" | head -n -1)
+	
+	if [ "$HTTP_CODE" != "200" ]; then
+		echo "Failed to bulk index documents. HTTP code: $HTTP_CODE, Response: $BODY" >&2
+		exit 1
+	fi
+	
+	# Validate response for errors
+	if echo "$BODY" | jq -e '.errors == true' > /dev/null 2>&1; then
+		echo "Bulk indexing had errors in batch $(( $BATCH_NUM + 1 )). Response: $BODY" >&2
+		exit 1
+	fi
+	
+	BATCH_NUM=$(( $BATCH_NUM + 1 ))
+done
+
+echo "Successfully indexed all $TOTAL_DOCS documents in $BATCHES batch(es)"
 `, backupDir, indexName, indexName, osHost)
 
 	pc, err := podman.NewPodmanClient()
@@ -537,98 +506,6 @@ func refreshIndex(ctx context.Context, containerID, osHost, osPassword, indexNam
 	}
 
 	return nil
-}
-
-// getOpenSearchPasswordFromSecret retrieves the OpenSearch password from the Podman secret using SDK.
-func getOpenSearchPasswordFromSecret(ctx context.Context, containerID string) (string, error) {
-	secretName, err := getSecretNameFromContainer(ctx, containerID)
-	if err != nil {
-		return "", err
-	}
-
-	logger.Infof("Reading password from secret: %s\n", secretName, 0)
-
-	secretData, err := fetchSecretData(ctx, secretName)
-	if err != nil {
-		return "", err
-	}
-
-	password, err := extractPasswordFromSecretData(secretData)
-	if err != nil {
-		return "", err
-	}
-
-	logger.Infof("Successfully retrieved password from secret\n", 0)
-
-	return password, nil
-}
-
-// getSecretNameFromContainer retrieves the secret name from the container's pod labels.
-func getSecretNameFromContainer(ctx context.Context, containerID string) (string, error) {
-	containerData, err := containers.Inspect(ctx, containerID, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to inspect container: %w", err)
-	}
-
-	podID := containerData.Pod
-	if podID == "" {
-		return "", fmt.Errorf("container is not part of a pod")
-	}
-
-	podData, err := pods.Inspect(ctx, podID, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to inspect pod: %w", err)
-	}
-
-	secretName, ok := podData.Labels["ai-services.io/secret"]
-	if !ok || secretName == "" {
-		return "", fmt.Errorf("secret label 'ai-services.io/secret' not found in pod labels")
-	}
-
-	return secretName, nil
-}
-
-// fetchSecretData retrieves the secret data from Podman.
-func fetchSecretData(ctx context.Context, secretName string) (string, error) {
-	inspectOpts := &secrets.InspectOptions{}
-	inspectOpts.WithShowSecret(true)
-
-	secretInfo, err := secrets.Inspect(ctx, secretName, inspectOpts)
-	if err != nil {
-		return "", fmt.Errorf("failed to inspect secret %s: %w", secretName, err)
-	}
-
-	if secretInfo.SecretData == "" {
-		return "", fmt.Errorf("secret data is empty for secret %s", secretName)
-	}
-
-	return secretInfo.SecretData, nil
-}
-
-// extractPasswordFromSecretData parses secret data to extract the password field.
-func extractPasswordFromSecretData(secretData string) (string, error) {
-	lines := strings.Split(secretData, "\n")
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		parts := strings.SplitN(line, ":", secretKeyValueParts)
-		if len(parts) != secretKeyValueParts {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		if key == "password" && value != "" {
-			return value, nil
-		}
-	}
-
-	return "", fmt.Errorf("password field not found in secret data")
 }
 
 // Made with Bob
